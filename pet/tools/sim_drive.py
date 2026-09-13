@@ -299,7 +299,8 @@ def main():
     sim.wait("'WAKES UP' not in sim_display.full_contents", want='True', timeout=10, msg='(awake)')
     time.sleep(0.5)
     sim.exec("import files; files._good_try = files._try_microsd; files._try_microsd = lambda: False")
-    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0")
+    # discipline 100: a stubborn pet may refuse a meal, and a refusal doesn't save
+    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0; p.discipline=100.0")
     sim.key('1')                                # feed: the save fails
     sim.wait('sim_display.story', timeout=15, msg='(Not Saving story)')
     story = sim.ev('sim_display.story')
@@ -311,8 +312,11 @@ def main():
     txt = sim.ev("__import__('pet_ux').session.card_check_text()")
     assert 'unusable' in txt and 'FAT32' in txt, txt
     sim.exec("import files; files._try_microsd = files._good_try")
-    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0")
+    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0; p.discipline=100.0")
+    meals = int(sim.pet("stats['meals']"))
     sim.key('1')                                # feed: the save works again
+    sim.wait("__import__('pet_ux').session.pet.stats['meals']", want=str(meals + 1), timeout=10,
+             msg='(fed after card fixed)')
     sim.wait("__import__('pet_ux').session.ram_only", want='False', timeout=15, msg='(recovered)')
     time.sleep(0.6)
     sim.shot('card_back')
