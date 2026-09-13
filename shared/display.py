@@ -169,7 +169,7 @@ class Display:
         self.clear()
         y = 4
         self.text(None,    y, 'COLDCARD', font=FontLarge)
-        self.text(None, y+20, 'Wallet', font=FontLarge)
+        self.text(None, y+20, 'Tamagotchi', font=FontLarge)
 
         from version import get_mpy_version
         timestamp, label, *_ = get_mpy_version()

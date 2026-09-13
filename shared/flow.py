@@ -350,7 +350,10 @@ DangerZoneMenu = [
                           " after any change to vault! Recommended for experiments or temporary use."),
                    predicate=has_real_secret),
     MenuItem('Perform Selftest', f=start_selftest),             # little harmful
-    MenuItem("Set High-Water", f=set_highwater),
+    # Unofficial fork: disabled on purpose. Raising the OTP high-water mark to
+    # this build's timestamp would permanently block going back to official
+    # firmware older than it. Never break the path back to stock.
+    MenuItem("Set High-Water", f=set_highwater, predicate=False),
     MenuItem('Wipe HSM Policy', f=wipe_hsm_policy, predicate=hsm_policy_available),
     MenuItem('Clear OV cache', f=wipe_ovc),
     MenuItem("Clear Address cache" if version.has_qwerty else "Clear Addr cache", f=wipe_address_cache),
