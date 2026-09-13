@@ -201,14 +201,28 @@ jobs:
         with:
           name: sim-screens
           path: sim
-      - run: |
-          (cd sim && zip -q ../simulator-screenshots.zip *.png sim.log)
-          ls -la dfu sim
+      - name: gather
+        run: |
+          mkdir -p out
+          cp dfu/*-mk-tamagotchi.dfu dfu/built-sha256.txt out/
+          # artifact keeps the repo-relative paths; flatten the frames
+          find sim -name '*.png' -exec cp {} out/ \;
+          (cd out && zip -q ../simulator-screenshots.zip *.png) && rm -f out/*.png
+          find sim -name '*.log' -exec zip -q -j simulator-screenshots.zip {} \;
+          ls -la out simulator-screenshots.zip
+      - name: drop stale firmware assets from a re-tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          for a in $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | grep -- '-mk-tamagotchi.dfu' || true); do
+            [ -f "out/$a" ] || gh release delete-asset "$TAG" "$a" --repo "$GITHUB_REPOSITORY" -y
+          done
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            dfu/*-mk-tamagotchi.dfu
-            dfu/built-sha256.txt
+            out/*-mk-tamagotchi.dfu
+            out/built-sha256.txt
             simulator-screenshots.zip
           body: |
             Unofficial COLDCARD Mk4 firmware that turns the device into a virtual pet.
