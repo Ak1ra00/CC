@@ -5,8 +5,9 @@ import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
-sys.path.insert(0, os.path.join(ROOT, 'shared'))
 sys.path.insert(0, os.path.join(ROOT, 'pet', 'tools'))
+# shared/ goes LAST: it has a random.py that must not shadow the stdlib one
+sys.path.append(os.path.join(ROOT, 'shared'))
 
 
 @pytest.fixture
