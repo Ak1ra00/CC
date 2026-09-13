@@ -1,298 +1,190 @@
-# Security Advisory
+# COLDCARD Tamagotchi
 
-- Versions from 2021 to July 2026 had a bug which produced poor entropy.
-- Any secrets generated on a COLDCARD in that period should be regenerated and 
-  funds moved on chain **immediately**.
-- Master seeds can only be trusted from releases after these levels:
-    - 5.6.0 (Mk4, MK5) 
-    - 1.5.0Q (Q1) 
-    - 4.2.0 (Mk3)
-    - 6.6.0 (Edge Mk/Q)
-- Using a BIP-39 passphrase mitigates some of the risk, although it relies
-  on the entropy your passphrase adds. Dice rolls introduced into the secret
-  provide 2.5 bits of entropy per roll.
-- [Blog post and updates](https://blog.coinkite.com/coldcard-mk3-seed-generation-warning/)
-- [Technical background on the bug](https://blog.coinkite.com/entropy-technical-backgrounder/)
+> **This is an unofficial fork. It is not made, endorsed, or supported by Coinkite.**
+> It is firmware for a COLDCARD Mk4 that you have *retired from Bitcoin forever*.
+> It is signed with the public developer key, which every COLDCARD bootloader
+> treats as "somebody random built this" and warns you about at every boot.
+> **Do not put a seed on a device running this. Do not sign anything with it.**
+> See [NOTICE](NOTICE). Coinkite's original README is [README-coldcard.md](README-coldcard.md).
 
----
+A $200 steel-clad, dual-secure-element, air-gapped, paranoid Bitcoin signing device
+whose remaining purpose is keeping a small creature alive.
 
-# COLDCARD Hardware Wallet
+| | |
+|---|---|
+| ![adult](pet/screenshots/stage_4_adult.png) | ![hungry, with poop](pet/screenshots/situation_hungry_poop.png) |
+| ![feeding](pet/screenshots/action_feed.png) | ![sick](pet/screenshots/situation_sick.png) |
+| ![PIN drill](pet/screenshots/game_pin_show.png) | ![R.I.P.](pet/screenshots/death.png) |
 
-Coldcard is an Affordable, Ultra-secure & Verifiable Hardware Wallet for Bitcoin.
-Get yours at [Coldcard.com](http://coldcard.com)
+*(Screens rendered by the firmware's own `display.py`, fonts and sprite code through
+`pet/tools/render.py`; the OLED shows the same pixels.)*
 
-[Follow @COLDCARDwallet on Twitter](https://twitter.com/coldcardwallet) to keep up
-with the latest updates and security alerts.
+## What it does
 
-![coldcard logo](https://coldcard.com/static/images/coldcard-logo-nav.png)
+- **Time only passes while the device is powered.** There is no battery-backed clock
+  in a COLDCARD, so the pet does not experience time while unplugged. Unplugging it
+  is putting it to bed; it wakes up rested, having dreamed something.
+- **It can only die on your watch.** It ages only while the pet screen is up. Neglect
+  has to be witnessed. Death is permanent: a tombstone is written to the card *before*
+  the save files are deleted, and there is no undo, resurrect, or reset.
+- **The microSD card *is* the pet.** Saves live on the card, atomically (two alternating
+  slots, counter + CRC32). Pull the card and you've taken the creature. Insert it into
+  another COLDCARD running this firmware and it wakes up there. No card: it tells you
+  loudly that nothing is being saved and lets you play in RAM anyway.
+- **Genetics from the real hardware TRNG.** Each egg's genome is 32 bytes straight off
+  the STM32 true-random generator (`ckcc.rng_bytes`), the path Coinkite fixed after the
+  [2021–2026 entropy bug](README-coldcard.md#security-advisory). Appetite, temperament
+  (sunny / grumpy / anxious / feral), stubbornness, immune system, lifespan, body shape,
+  eye style and name all come from it. Two pets do not feel the same.
+- **Sneakernet breeding.** Two living adults on one card can be bred into an egg whose
+  genome is a per-byte mix of both parents plus fresh TRNG mutations. Generation and
+  parentage go in the save. Pets travel between devices by handing someone a card.
+- **NFC, via a phone.** Mk4's NFC is a passive tag, so two COLDCARDs can't tap each
+  other. A phone can read the pet off one device (*NFC: Beam Pet*) and write it into
+  another (*NFC: Receive Pet*). SD stays the real transport.
+- **Graveyard.** Every death leaves a tombstone: name, lifetime stats, genome, cause,
+  and a generated epitaph. *Pet menu → Graveyard* reads them back.
+- **It has opinions.** The status line is the creature talking. Grumpy ones say things
+  like "Your PIN was better." Anxious ones keep asking whether the card is still in.
 
-![Mk5 coldcard picture front](https://coldcard.com/static/images/mk5-front.png)
+## Controls
 
-## Quick Links
+The pet screen maps actions straight onto the keypad. Key **8** shows this on-device.
 
-- [Latest firmware changes and updates](releases/ChangeLog.md)
-- [PGP signature file](releases/signatures.txt)
-- [Firmware binaries](https://coldcard.com/downloads)
-
-## Reproducible Builds
-
-To have confidence this source code tree is the same as the binary on your device,
-you can rebuild it from source and get **exactly the same bytes**. This process
-has been automated using Docker. Steps are as follows:
-
-1. Install [Docker](https://www.docker.com) and start it.
-2. Install [make (GNUMake)](https://www.gnu.org/software/make/) if you don't already have it.
-3. Checkout a specific version of the code, and start the process.
-
-    ```shell
-    git clone https://github.com/Coldcard/firmware.git
-    cd firmware
-    # DOWNLOAD https://coldcard.com/downloads
-    # get a copy of binary into ./releases/2026-03-05T2052-v5.5.0-mk-coldcard.dfu
-    git checkout 2026-03-05T2052-v5.5.0
-    cd stm32
-    make -f MK4-Makefile repro
-    ```
-
-4. At the end of the process a clear confirmation message is shown, or the differences.
-5. Build products can be found `firmware/stm32/built`.
-6. If you do not trust the results of `make repro` refer to `docs/notes-on-repro.md`
-   which breaks down the process.
-7. Process for Q firmware is the same, but change `MK4-Makefile` in last step to `Q1-Makefile`
-
-## Long-Lived Branches
-
-We are now maintaining two branches: `master` and `edge`.
-
-"Edge" will contain features that may not be ready for prime time,
-such as Taproot or Miniscript. Our standards for releasing new Edge
-versions are lower, so we can iterate faster and get these advancements
-out to other developers.
-
-Q and Mk series share the same code base. Individual files that are added,
-or removed, can be see in differences between `shared/manifest_mk4.py`
-and `shared/manifest_q1.py`. Common files are in `shared/manifest.py`.
-Firmware built for Mk5, supports the Mk4 without any functional differences.
-
-
-## Check-out and Setup
-
-**NOTE** This is the `master` branch and covers the latest hardware (Mk and Q).
-See branch `v4-legacy` for firmware which supports only Mk3/Mk2 and earlier.
-
-Do a checkout, recursively, to get all the submodules:
-
-```shell
-git clone --recursive https://github.com/Coldcard/firmware.git
+```
+ 1  Feed (meal)      2  Snack           3  Play (minigames)
+ 4  Clean poop       5  Medicine        6  Scold
+ 7  Status/stats     8  Help            9  Pet menu
+ 0  Make it talk    OK  Pat it          X  Leave the pet screen
 ```
 
-Already checked-out and getting git errors? Do this:
+- **Egg:** any key warms it. It hatches after ~90 seconds of attention.
+- **Minigames** (key 3): *PIN Drill* — it shows you a PIN, you type it back, rounds get
+  longer; *Which Way?* — guess which way it looks with 4/6. Winning raises happiness
+  and burns weight.
+- **Pet menu** (key 9): Back To Pet, New Egg, Switch Pet, Breed, Graveyard, Rename,
+  NFC Beam/Receive, Help.
+- After login, if a live pet is on the card it wakes up on screen automatically.
+  `Virtual Pet` is also the first item of every top-level menu.
 
-```shell
-git fetch
-git reset --hard origin/master
+## Caring for it
+
+Three gauges on the left: **F**ood, **J**oy, **Z**zz (energy). Poop appears on the floor
+some minutes after meals; leave it and the pet gets sick (skull icon). Sick pets need
+medicine (5), sometimes twice. A `!` means it wants something; ignore a real call for
+five minutes and that's a *care mistake*, which shortens its life. Stubborn, undisciplined
+pets throw fake tantrums and refuse food — scold them (6) when they do, and only then.
+Snacks are fun and fattening. Energy only comes back from sleep, and sleep only comes
+from unplugging it.
+
+It dies of: starvation, untreated sickness, a broken heart, too many snacks, or old age.
+
+All decay rates, thresholds, stage timings and lifespan are in **one labelled block** at
+the top of [`shared/pet_model.py`](shared/pet_model.py) (`TUNING KNOBS`).
+
+## Building
+
+The `.dfu` is built by GitHub Actions on every push
+([`.github/workflows/pet-firmware.yml`](.github/workflows/pet-firmware.yml)) inside
+Coinkite's own build container, and attached as a workflow artifact
+(`tamagotchi-mk4-dfu`). Tags named `pet-v*` also publish a GitHub Release with the file.
+
+Locally (Linux/macOS/WSL with Docker):
+
+```bash
+git clone --branch tamagotchi https://github.com/Ak1ra00/CC.git && cd CC
+git submodule update --init external/micropython external/libngu external/mpy-qr external/ckcc-protocol
+git -C external/micropython submodule update --init lib/stm32lib
+git -C external/libngu/libs submodule update --init bech32 cifra secp256k1
+sed 's/musl-dev make/musl-dev gcc make/' stm32/dockerfile.build | docker build -t coldcard-build -
+docker run --rm -v "$PWD:/work/src" -w /work/src -e HOME=/tmp -u "$(id -u):$(id -g)" coldcard-build sh stm32/pet-build.sh
+ls stm32/*.dfu
 ```
 
-Alternatively, to get the latest release, you checkout a tagged branch:
+Version string is `5.6.2p` (upstream 5.6.2 + pet). Never sign with `signit --high_water`.
 
-```shell
-git clone https://github.com/Coldcard/firmware.git
-cd firmware
-git checkout $(git describe --match "20*" --abbrev=0)
-git submodule update --init --recursive
+### Tests (no toolchain needed)
+
+```bash
+pip install pytest pillow
+cd pet && python -m pytest
+python pet/tools/render.py          # re-render the screenshots
 ```
 
-Do not use a path with any spaces in it. The Makefiles do not handle
-that well and we're not planning to fix it.
+`pet/tests/` runs the pet model against a fake clock (one tick = one awake-second), the
+card store against a temp directory, and the whole UX loop — ticker, autosave, death,
+menus, minigames, breeding, card yank — under CPython asyncio with a scripted keypad.
 
-Keep in mind that python requirements may change between versions,
-so at the top level, do this command:
+### Desktop simulator
 
-```shell
-pip install -r requirements.txt
+Coinkite's simulator (`unix/`) needs Linux/macOS (WSL on Windows): follow
+[unix/README.md](unix/README.md) for `make setup && make`, then
+
+```bash
+cd unix && ./simulator.py --pet            # boots straight into the pet
+./simulator.py --pet --eject               # no card: RAM mode
 ```
 
-### macOS
+The simulated card is `unix/work/MicroSD/`; the pet's files appear under `pets/` there.
+`^Z` snapshots the screen, `^S`/`^E` records a GIF.
 
-[Python 3.5 or higher](https://www.python.org) and [Homebrew](https://brew.sh) is required.
+## Flashing
 
-If working on an ARM-based MacOS system, you may want to create a
-new shell with `arch -x86_64 bash` before starting, or continuing
-to work on this source tree.
+Prerequisites: a Mk4 (or Mk5) with a **main PIN set** — the firmware upgrade path is
+only available after login. Nothing here touches the bootloader; it cannot be replaced
+and always runs first.
 
-#### Setup and run the desktop simulator
+1. Download `*-mk-tamagotchi.dfu` from the Actions artifact or a Release. Check its
+   SHA-256 against `built-sha256.txt` from the same build.
+2. Copy it to a microSD card. On the device: **Advanced/Tools → Upgrade Firmware →
+   From MicroSD**, pick the file, confirm. (Or over USB: `pip install ckcc-protocol` then
+   `ckcc upgrade file.dfu`.)
+3. On reboot the bootloader shows a large warning that the firmware is signed with a
+   dev key, plus a forced delay. **This is expected and normal**, every single boot.
+4. Log in with your PIN. A `Virtual Pet` item is at the top of the menu. Put a card in.
 
-You'll probably need to install at least these packages:
+The Mk4 has one microSD slot; the pet and any firmware `.dfu` can share the card.
 
-```shell
-brew install sdl2 xterm swig
-brew install --cask xquartz gcc-arm-embedded
+## Back to official firmware
+
+The path back is the same path in: download the official `.dfu` from
+[coldcard.com/downloads](https://coldcard.com/downloads), verify it against Coinkite's
+signed `signatures.txt`, put it on a card, **Advanced/Tools → Upgrade Firmware → From
+MicroSD** (or `ckcc upgrade`). The bootloader verifies Coinkite's signature and the
+warning goes away.
+
+Two things could break that path, and this fork guards against both:
+
+- The bootloader has one-way *downgrade protection*: an OTP "high-water" timestamp
+  that, once raised, refuses any firmware with an older build date. It is raised **only**
+  by *Danger Zone → Set High-Water* (which this fork disables) or by a firmware header
+  flag (`signit --high_water`, which the build never sets). Installing this fork does
+  not raise it. **Never** re-enable or use either on a build newer than the official
+  release you want to return to.
+- Nothing in *Brick Me*, trick PINs, PIN/secure-element handling, or the bootloader is
+  modified by this fork. `git diff upstream/master..tamagotchi -- shared/` shows exactly
+  what changed: five new `pet_*.py` modules, their entries in `manifest.py`, menu
+  wiring in `flow.py`, one hook in `main.py`, the splash text, and the disabled
+  Set High-Water item.
+
+If your COLDCARD ever refuses an official image as a "downgrade", pick a newer official
+release than this build's timestamp; that will always be accepted.
+
+## Layout
+
+```
+shared/pet_model.py    the creature: stats, stages, genome, breeding, death, words  (pure Python)
+shared/pet_sprites.py  ASCII-art bodies, eyes, mouths, props -> Display.icon() tuples
+shared/pet_draw.py     every screen as a plain function of (display, pet, frame)
+shared/pet_store.py    atomic two-slot saves, tombstones, active pointer, card adapter
+shared/pet_ux.py       async UX: PetScreen, ticker, menus, minigames, NFC relay
+pet/tests/             pytest: model, store, UX under a fake clock
+pet/tools/             fakehw.py (pure-Python framebuf + real display.py), fakeux.py, render.py
+stm32/pet-build.sh     container build + key-zero signing
 ```
 
-Used to be these were needed as well:
+## Licence
 
-```shell
-brew tap PX4/px4
-brew search px4/px4/gcc-arm-none-eabi
-```
-
-Then install the newest version, currently 83:
-
-```shell
-brew install px4/px4/gcc-arm-none-eabi-83
-```
-
-You may need to `brew upgrade gcc-arm-embedded` because we need 10.2 or higher.
-
-Then:
-
-```shell
-brew install automake autogen virtualenv
-virtualenv -p python3 ENV
-source ENV/bin/activate (or source ENV/bin/activate.csh based on shell preference)
-pip install -U pip
-pip install -r requirements.txt
-# Work around warnings in bundled MicroPython under current Apple Clang.
-MPY_CFLAGS='-Wno-unused-but-set-variable -Wno-array-bounds -Wno-error=unknown-warning-option -Wno-error=deprecated-non-prototype -Wno-error=bitwise-instead-of-logical -Wno-unterminated-string-initialization -Wno-gnu-folding-constant'
-make -C external/micropython/mpy-cross CFLAGS_EXTRA="$MPY_CFLAGS"
-cd unix
-make setup CFLAGS_EXTRA="$MPY_CFLAGS"
-make ngu-setup
-make CFLAGS_EXTRA="$MPY_CFLAGS"
-./simulator.py
-```
-
-You may need to reboot to avoid a `DISPLAY is not set` error.
-
-The next time you want to run the simulator, you can simply do
-
-```shell
-source ENV/bin/activate && cd unix && ./simulator.py
-```
-
-#### Building the firmware
-
-- `cd ../cli; pip install --editable .`
-- `cd ../stm32; make setup && make; make firmware-signed.dfu`
-- The resulting file, `firmware-signed.dfu` can be loaded directly onto a Coldcard, using this
-  command (already installed based on above)
-- `ckcc upgrade firmware-signed.dfu`
-
-Which looks like this:
-
-```shell
-[ENV] [firmware/stm32 42] ckcc upgrade firmware-signed.dfu  
-675328 bytes (start @ 293) to send from 'firmware-signed.dfu'
-Uploading  [##########--------------------------]   29%  0d 00:01:04
-```
-
-#### Big Sur Issues
-
-`defaults write org.python.python ApplePersistenceIgnoreState NO` will suppress a warning about `Python[22580:10101559] ApplePersistenceIgnoreState: Existing state will not be touched. New state will be written to...`
-
-See <https://bugs.python.org/issue32909>
-
-### Linux
-
-All steps you need to install and run the Coldcard simulator on Ubuntu 20.04:
-
-
-```shell
-# Install (system) requirements, tools and libraries
-apt install build-essential git python3 python3-pip libudev-dev gcc-arm-none-eabi libffi-dev xterm swig libpcsclite-dev python-is-python3 autoconf libtool python3-venv
-
-# Get sources, this takes a long time (because of external libraries), then open
-git clone --recursive https://github.com/Coldcard/firmware.git
-cd firmware
-
-# Ubuntu 24.04 only; omit this assignment on earlier releases
-MPY_CFLAGS='-Wno-error=dangling-pointer -Wno-error=enum-int-mismatch'
-
-
-# Create Python virtual environment and activate it
-python3 -m venv ENV  # or virtualenv -p python3 ENV
-source ENV/bin/activate
-
-# Install dependencies
-pip install -U pip setuptools
-pip install -r requirements.txt #general requirements
-pip install pysdl2-dll # Ubuntu needs this dependency
-
-# Build the Coldcard simulator
-make -C external/micropython/mpy-cross CFLAGS_EXTRA="$MPY_CFLAGS"
-cd unix
-make setup CFLAGS_EXTRA="$MPY_CFLAGS"
-make ngu-setup
-make CFLAGS_EXTRA="$MPY_CFLAGS"
-
-# Run the simulator in the active virtualenv
-./simulator.py
-
-# Later, if you want to run it (after a reboot). This assumes you extracted the git repo in ~ (home)
-cd ~/firmware
-source ENV/bin/activate
-cd unix
-./simulator.py
-```
-
-Also make sure that you have your python3 symlinked to python.
-
-## Code Organization
-
-Top-level dirs:
-
-`shared`
-
-- shared code between desktop test version and real-deal
-- expected to be largely in python, and higher-level
-- code exclusive to the Mk4 or Mk5 will be listed in `manifest_mk4.py`, and
-  to the Q will be listed in `manifest_q1.py`
-
-`unix`
-
-- unix (macOS) version for testing/rapid dev
-- this is a simulator for the product
-
-`testing`
-
-- test cases and associated data
-
-`stm32`
-
-- embedded binaries (and building), for actual product hardware
-- final target is a binary file for loading onto hardware
-
-`external`
-
-- code from other projects, ie. the dreaded submodules
-
-`graphics`
-
-- images which ship as part of the final product (icons)
-
-`stm32/bootloader`
-
-- 32k of factory-set code that you cannot change (Mk3)
-- however, you can inspect what code is on your coldcard and compare to this.
-
-`stm32/mk4-bootloader`
-`stm32/q1-bootloader`
-
-- 128k of factory-set code that you cannot change
-- however, you can inspect what code is on your coldcard and compare to this.
-
-`hardware`
-
-- schematic and bill of materials for the Coldcard, all versions.
-
-`unix/work/...`
-
-- `/MicroSD/*` files on "simulated" microSD card
-
-- `/VirtDisk/*` simulated emulated virtual Disk files.
-
-- `/settings/*.aes` persistent settings for Simulator
-
-## Support
-
-Found a bug? Email: support@coinkite.com
+Coinkite's firmware is MIT + Commons Clause ([COPYING-CC](COPYING-CC), via `LICENSE`)
+and that continues to cover this fork as a whole. The new pet files are additionally
+offered under plain MIT ([LICENSE-PET](LICENSE-PET)). See [NOTICE](NOTICE).
