@@ -72,6 +72,7 @@ jobs:
             ln -sf ../external/micropython/ports/unix l-port
             ln -sf ../external/micropython l-mpy
             ln -sf ../external/micropython/ports/unix/coldcard-mpy coldcard-mpy
+            make -C ../external/micropython/mpy-cross -j4
             make ngu-setup
             make tools
             make
