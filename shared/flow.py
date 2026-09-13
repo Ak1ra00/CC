@@ -22,6 +22,12 @@ from tapsigner import import_tapsigner_backup_file
 from ccc import toggle_ccc_feature, sssp_spending_policy, sssp_feature_menu
 from wif import WIFStoreMenu
 
+# Unofficial fork: the virtual pet. Mk4 (OLED) only; Q has a different display stack.
+if not version.has_qwerty:
+    from pet_ux import start_pet
+else:
+    start_pet = None
+
 # useful shortcut keys
 from charcodes import KEY_QR, KEY_NFC
 
@@ -433,6 +439,7 @@ AdvancedNormalMenu = [
 # needs to create main wallet PIN
 VirginSystem = [
     #         xxxxxxxxxxxxxxxx
+    MenuItem('Virtual Pet', f=start_pet, predicate=not version.has_qwerty),
     MenuItem('Choose PIN Code', f=initial_pin_setup),
     MenuItem('Advanced/Tools', menu=AdvancedVirginMenu, shortcut='t'),
     MenuItem('Bag Number', f=show_bag_number),
@@ -466,6 +473,7 @@ NewSeedMenu = [
 # has PIN, but no secret seed yet
 EmptyWallet = [
     #         xxxxxxxxxxxxxxxx
+    MenuItem('Virtual Pet', f=start_pet, predicate=not version.has_qwerty),
     MenuItem('New Seed Words', menu=NewSeedMenu),
     MenuItem('Import Existing', menu=ImportWallet),
     MenuItem("Migrate Coldcard", menu=clone_start),
@@ -480,6 +488,7 @@ EmptyWallet = [
 # - key shortcuts in place for all items that will be shown on Q
 NormalSystem = [
     #         xxxxxxxxxxxxxxxx
+    MenuItem('Virtual Pet', f=start_pet, predicate=not version.has_qwerty),
     MenuItem('Ready To Sign', f=ready2sign, shortcut='r'),
     MenuItem('Passphrase', menu=start_b39_pw, predicate=word_based_seed, shortcut='p'),
     MenuItem('Scan Any QR Code', predicate=version.has_qr,

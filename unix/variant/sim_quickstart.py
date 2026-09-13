@@ -143,6 +143,10 @@ if '--xor' in sys.argv:
     numpad.inject('8')
     #numpad.inject('y')  # seed xor
 
+if '--pet' in sys.argv:
+    # Virtual Pet is the first item of every top menu
+    numpad.inject('y')
+
 if '--seq' in sys.argv:
     # inject a sequence of key presses to get you somewhere
     seq = sys.argv[sys.argv.index('--seq') + 1]

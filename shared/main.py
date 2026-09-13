@@ -126,6 +126,14 @@ async def more_setup():
     from actions import goto_top_menu
     goto_top_menu()
 
+    # unofficial fork: if there's a pet on the card, it wakes up on screen now
+    if not version.has_qwerty:
+        try:
+            from pet_ux import pet_autostart
+            await pet_autostart()
+        except BaseException as exc:
+            print("pet_autostart: %r" % exc)
+
     # fetch this function for mainline to use
     from ux import the_ux
     doit = the_ux.interact
