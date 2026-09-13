@@ -294,6 +294,10 @@ def main():
     assert sim.pet('id').strip("'") == pid2
     assert sim.pet("stats['naps']") == '2'
     sim.wait("__import__('pet_ux').session.active", want='True')
+    # the wake-up animation eats the first keypress; let it finish
+    sim.wait("'WAKES UP' in sim_display.full_contents", want='True', timeout=10, msg='(waking)')
+    sim.wait("'WAKES UP' not in sim_display.full_contents", want='True', timeout=10, msg='(awake)')
+    time.sleep(0.5)
     sim.exec("import files; files._good_try = files._try_microsd; files._try_microsd = lambda: False")
     sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0")
     sim.key('1')                                # feed: the save fails
