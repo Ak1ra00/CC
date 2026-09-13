@@ -30,7 +30,23 @@ EVENT_LINES = {
     'grow:teen':  "Teenager. Good luck.",
     'grow:adult': "All grown up. Can breed.",
     'grow:elder': "Old now. Be gentle.",
+    'saved':      "Card is back. Saved.",
 }
+
+def explain(e):
+    # files.CardSlot raises a bare CardMissingError when a card is present but
+    # os.mount() fails -- the "it's exFAT" case. Say what that means.
+    if isinstance(e, CardMissingError):
+        try:
+            if CardSlot.is_inserted():
+                return "card detected but it will not mount (not FAT32?)"
+        except Exception:
+            pass
+        return "no card"
+    return repr(e)
+
+CARD_FIX = ("COLDCARD reads FAT32 only; cards over 32GB usually ship as exFAT. "
+            "Advanced/Tools > File Management > Format SD Card fixes that (erases the card).")
 
 
 class PetSession:
@@ -39,7 +55,9 @@ class PetSession:
     def __init__(self):
         self.pet = None
         self.store = PetStore(CardFS)
-        self.ram_only = False       # no card: playing in RAM, nothing saved
+        self.ram_only = False       # nothing is being saved (no card, or saves failing)
+        self.card_err = None        # why the last card access failed (repr), or None
+        self.pending_story = None   # (title, text) the pet screen must show next
         self.loaded = False         # tried the card since boot?
         self.last_ms = None
         self.since_save = 0
@@ -110,25 +128,48 @@ class PetSession:
 
     # ------------------------------------------------------------ card
     def card_present(self):
+        # the card-detect switch only. Says nothing about whether it mounts.
         try:
             return CardSlot.is_inserted()
         except Exception:
             return False
 
+    def card_state(self):
+        # -> ('none', None) no card; ('bad', why) inserted but unusable; ('ok', None)
+        if not self.card_present():
+            return 'none', None
+        try:
+            with CardFS() as fs:
+                fs.exists('pets')
+            return 'ok', None
+        except Exception as e:
+            return 'bad', explain(e)
+
     def save(self):
+        # Returns True if the pet is on the card. A failure is never silent: the
+        # pet screen gets a story, and the banner blinks until a save works again.
         self.since_save = 0
         if not self.pet or not self.pet.alive:
             return False
-        if not self.card_present():
-            self.ram_only = True
-            return False
         try:
             self.store.save(self.pet.to_dict())
-            self.ram_only = False
-            return True
-        except (CardMissingError, OSError) as e:
+        except Exception as e:
+            # CardMissingError, OSError, anything: the pet must not crash.
+            why = explain(e)
+            if not self.ram_only or why != self.card_err:
+                self.pending_story = ("Not Saving!",
+                    "The pet could not be written to the card:\n\n%s\n\n"
+                    "It keeps living in RAM, and dies for real when the power goes. "
+                    "Fix the card (or insert one) and it saves again by itself."
+                    % why)
             self.ram_only = True
+            self.card_err = why
             return False
+        if self.ram_only:
+            self.events.append('saved')
+        self.ram_only = False
+        self.card_err = None
+        return True
 
     def bury(self):
         # pet died: tombstone first, then delete the saves. Permanent.
@@ -140,37 +181,84 @@ class PetSession:
             if self.card_present():
                 self.store.bury(tomb)
                 self.store.set_active(None)
-        except (CardMissingError, OSError):
-            pass
+        except Exception as e:
+            self.card_err = repr(e)
 
     def load_from_card(self):
-        # -> True if a live pet was loaded. Sets self.pet.
+        # -> 'ok' (a live pet is now self.pet), 'empty' (card fine, no live pet),
+        #    'none' (no card), 'bad' (card inserted but unusable; see card_err)
         self.loaded = True
         if not self.card_present():
-            self.ram_only = True
-            return False
+            self.card_err = None
+            return 'none'
         try:
             pets = self.store.load_all()
             active = self.store.get_active()
-        except (CardMissingError, OSError):
-            self.ram_only = True
-            return False
-        self.ram_only = False
+        except Exception as e:
+            # mount failed (CardMissingError), or the FAT is unhappy (OSError)
+            self.card_err = explain(e)
+            return 'none' if not self.card_present() else 'bad'
+        self.card_err = None
+
+        # a pet that died with the power off between tombstone and cleanup: finish it
+        for pid in list(pets):
+            if not pets[pid].get('alive', True):
+                try:
+                    self.pet = M.Pet.from_dict(pets[pid], self.rng)
+                    self.bury()
+                except Exception:
+                    pass
+                self.pet = None
+                del pets[pid]
+
         d = pets.get(active) if active else None
         if d is None and pets:
             # no pointer: take the oldest survivor
             d = sorted(pets.values(), key=lambda x: -x.get('age', 0))[0]
         if d is None:
-            return False
+            return 'empty'
         pet = M.Pet.from_dict(d, self.rng)
-        if not pet.alive:
-            # died with the power off between tombstone and cleanup: finish it
-            self.pet = pet
-            self.bury()
-            self.pet = None
-            return False
+        self.ram_only = False
         self.adopt(pet, just_woke=True)
-        return True
+        return 'ok'
+
+    def card_check_text(self):
+        # the Card Check screen: what is really on the card, or why not
+        st, err = self.card_state()
+        ln = []
+        if st == 'none':
+            ln.append("No card detected.")
+        elif st == 'bad':
+            ln.append("Card detected but unusable:")
+            ln.append(err)
+            ln.append("")
+            ln.append(CARD_FIX)
+        else:
+            r = self.store.report()
+            ln.append("Card OK at %s" % r['mount'])
+            if r['free_kb'] is not None:
+                ln.append("Free: %d KB" % r['free_kb'])
+            ln.append("Active: %s" % (r['active'] or '-'))
+            ln.append("Saves: %d  Graves: %d" % (len(r['pets']), r['graves']))
+            for fn, n, name, stage, alive in r['pets']:
+                ln.append("%s #%s %s %s%s" % (fn, n if n is not None else '?', name, stage,
+                                            '' if alive else ' DEAD'))
+            odd = [f for f in r.get('files', ())
+                   if not (len(f) == 10 and f[8] == '.' and f[9] in 'ab')
+                   and f not in ('active.txt', 'graveyard')]
+            if odd:
+                ln.append("Other files: " + ' '.join(odd))
+            for path, why in r['bad']:
+                ln.append("BAD %s: %s" % (path.rsplit('/', 1)[-1], why))
+            if r['err']:
+                ln.append("Error: %s" % r['err'])
+        ln.append("")
+        if self.pet:
+            ln.append("On screen: %s %s, %s" % (self.pet.name, self.pet.id,
+                        "NOT SAVED (RAM only)" if self.ram_only else "saved"))
+        if self.card_err:
+            ln.append("Last error: %s" % self.card_err)
+        return '\n'.join(ln)
 
     def adopt(self, pet, just_woke=False):
         # make this the pet on screen
@@ -178,21 +266,22 @@ class PetSession:
         self.last_ms = None
         self.events = []
         self.dream = pet.wake() if just_woke else None
-        if self.card_present():
+        if not self.ram_only:
             try:
                 self.store.set_active(pet.id)
-            except (CardMissingError, OSError):
-                pass
-        self.save()
+            except Exception:
+                pass                # save() below reports the failure properly
+            self.save()
 
     def other_pets(self):
         # dicts of every live pet on the card (including the current one)
         if not self.card_present():
             return {}
         try:
-            return self.store.load_all()
-        except (CardMissingError, OSError):
+            pets = self.store.load_all()
+        except Exception:
             return {}
+        return dict((k, v) for k, v in pets.items() if v.get('alive', True))
 
 
 session = PetSession()
@@ -238,6 +327,12 @@ class PetScreen:
                 if not isinstance(the_ux.top_of_stack(), PetMenu):
                     the_ux.push(make_pet_menu())
                 return
+
+            if s.pending_story:
+                title, text = s.pending_story
+                s.pending_story = None
+                await ux_show_story(text, title=title)
+                ux_clear_keys()
 
             # things the ticker noticed
             while s.events:
@@ -340,37 +435,59 @@ class PetScreen:
 
 
 # ---------------------------------------------------------------- entry points
-async def start_pet(*a):
-    # menu item: "Virtual Pet"
+async def card_problem(st):
+    # The card is missing ('none') or unusable ('bad'). Returns 'retry' when a
+    # card shows up or they ask, 'ram' after they explicitly accept RAM play,
+    # 'back' to give up. Never quietly hands out an egg.
     s = session
     dis = glob.dis
-
-    if not s.loaded or (s.pet is None and s.card_present() and not s.ram_only):
-        s.load_from_card()
-
-    if s.pet is None and s.ram_only:
-        # no card. Offer to play in RAM.
+    if st == 'bad':
+        ch = await ux_show_story("A card is inserted but it can't be used:\n\n%s\n\n%s"
+                                 "\n\nPress (1) to try again, (2) to play in RAM "
+                                 "(nothing is saved), X to go back."
+                                 % (s.card_err, CARD_FIX), title="Card Problem", escape='12')
+        if ch == '1':
+            return 'retry'
+        if ch != '2':
+            return 'back'
+    else:
         f = 0
         while True:
             D.draw_card_pull(dis, f)
             f += 1
             ch = await ux_wait_keydown(timeout_ms=500)
             if ch == 'x':
-                return
+                return 'back'
             if ch == 'y':
                 break
             if s.card_present():
-                s.load_from_card()
-                break
+                return 'retry'
+    if not await ux_confirm("Nothing will be saved. Unplugging kills the pet, "
+                            "no tombstone, no trace. Still play?", title="RAM only?"):
+        return 'back'
+    return 'ram'
+
+
+async def start_pet(*a):
+    # menu item: "Virtual Pet"
+    s = session
 
     if s.pet is None:
-        # nothing to raise yet
-        if s.other_pets():
-            the_ux.push(make_pet_menu())
-        else:
-            await new_egg()
-            if s.pet:
-                the_ux.push(PetScreen())
+        st = s.load_from_card()
+        while st in ('none', 'bad'):
+            what = await card_problem(st)
+            if what == 'back':
+                return
+            if what == 'ram':
+                s.ram_only = True
+                break
+            st = s.load_from_card()
+
+    if s.pet is None:
+        # a usable card with no live pet on it, or RAM by choice: lay an egg
+        await new_egg()
+        if s.pet:
+            the_ux.push(PetScreen())
         return
 
     the_ux.push(PetScreen())
@@ -389,7 +506,7 @@ async def pet_autostart():
     # wakes up right on screen. This device has one job now.
     try:
         s = session
-        if s.card_present() and s.load_from_card():
+        if s.load_from_card() == 'ok':
             the_ux.push(PetScreen())
     except Exception as e:
         try:
@@ -419,11 +536,17 @@ async def new_egg(*a):
     await sleep_ms(900)
     ux_clear_keys()
     s.adopt(pet)
+    if s.ram_only:
+        saved = "NOT SAVED: RAM only. Unplug and it's gone."
+        if s.card_err:
+            saved += "\n(" + s.card_err + ")"
+    else:
+        saved = "Saved to the card."
+    s.pending_story = None          # this story carries the news itself
     await ux_show_story("An egg. Its name will be %s.\n\nGenome id %s\n\n"
                         "Keep it warm: press keys on the pet screen. It hatches "
                         "after about %d seconds of attention.\n\n%s"
-                        % (pet.name, pet.id, M.STAGE_AT['baby'],
-                           "NOT SAVED: no card." if s.ram_only else "Saved to the card."),
+                        % (pet.name, pet.id, M.STAGE_AT['baby'], saved),
                         title="New Egg")
 
 
@@ -451,6 +574,7 @@ def make_pet_menu():
         MenuItem('Rename', f=rename_pet, predicate=lambda: session.pet is not None),
         MenuItem('NFC: Beam Pet', f=nfc_beam, predicate=lambda: bool(glob.NFC) and session.pet is not None),
         MenuItem('NFC: Receive Pet', f=nfc_receive, predicate=lambda: bool(glob.NFC)),
+        MenuItem('Card Check', f=card_check),
         MenuItem('Help', f=pet_help),
     ]
     return PetMenu(items)
@@ -463,6 +587,19 @@ async def back_to_pet(*a):
 
 async def pet_help(*a):
     await ux_show_story(D.HELP_TEXT, title="Pet Help")
+
+
+async def card_check(*a):
+    # what is really on the card. The answer to "why is my pet gone?"
+    s = session
+    while True:
+        ch = await ux_show_story(s.card_check_text() + "\n\nPress (1) to save now.",
+                                 title="Card Check", escape='1')
+        if ch != '1':
+            return
+        ok = s.save() if s.pet else False
+        s.pending_story = None          # the text below carries the error already
+        await ux_show_story("Saved." if ok else "Save FAILED: %s" % (s.card_err or "no pet"))
 
 
 async def rename_pet(*a):
@@ -572,8 +709,9 @@ async def graveyard(*a):
         return
     try:
         graves = s.store.graveyard()
-    except (CardMissingError, OSError):
-        graves = []
+    except Exception as e:
+        await ux_show_story("Card problem: %s" % repr(e), title="Graveyard")
+        return
     if not graves:
         await ux_show_story("Nobody has died yet.\n\nGive it time.", title="Graveyard")
         return

@@ -124,11 +124,13 @@ def draw_main(dis, pet, frame, msg=None, action=None, ram_only=False, flash=Fals
     dis.clear()
     fb = dis.dis
 
-    # header: name / stage + awake age
-    _tiny(dis, 0, 0, pet.name.upper())
+    # header: name / stage + awake age. In RAM mode the whole header blinks
+    # inverted: nothing on this screen survives a power cut, and you must know.
     if ram_only and frame & 1:
-        _tiny(dis, -1, 0, 'NOT SAVING!')
+        fb.fill_rect(0, 0, W, 8, 1)
+        _tiny(dis, None, 1, 'NOT SAVING! RAM ONLY', invert=1)
     else:
+        _tiny(dis, 0, 0, pet.name.upper())
         _tiny(dis, -1, 0, '%s %s' % (pet.stage, fmt_awake(pet.age)))
     fb.hline(0, 7, W, 1)
 
