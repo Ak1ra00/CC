@@ -38,8 +38,10 @@ the same `display.py` and fonts by `pet/tools/render.py`:*
   the save files are deleted, and there is no undo, resurrect, or reset.
 - **The microSD card *is* the pet.** Saves live on the card, atomically (two alternating
   slots, counter + CRC32). Pull the card and you've taken the creature. Insert it into
-  another COLDCARD running this firmware and it wakes up there. No card: it tells you
-  loudly that nothing is being saved and lets you play in RAM anyway.
+  another COLDCARD running this firmware and it wakes up there. No card, or a card it
+  can't use: it says so on a full screen, and only plays in RAM if you explicitly agree,
+  with the header blinking `NOT SAVING! RAM ONLY` the whole time. The card must be
+  **FAT32** — see [The card](#the-card).
 - **Genetics from the real hardware TRNG.** Each egg's genome is 32 bytes straight off
   the STM32 true-random generator (`ckcc.rng_bytes`), the path Coinkite fixed after the
   [2021–2026 entropy bug](README-coldcard.md#security-advisory). Appetite, temperament
@@ -72,9 +74,36 @@ The pet screen maps actions straight onto the keypad. Key **8** shows this on-de
   longer; *Which Way?* — guess which way it looks with 4/6. Winning raises happiness
   and burns weight.
 - **Pet menu** (key 9): Back To Pet, New Egg, Switch Pet, Breed, Graveyard, Rename,
-  NFC Beam/Receive, Help.
+  NFC Beam/Receive, Card Check, Help.
 - After login, if a live pet is on the card it wakes up on screen automatically.
   `Virtual Pet` is also the first item of every top-level menu.
+
+## The card
+
+The pet is saved to the microSD card on every action, every 30 seconds while on screen,
+and when you leave the pet screen. On the card it looks like this:
+
+```
+pets/<id>.a  pets/<id>.b     two alternating save slots (counter + CRC32; a yanked
+                             cable corrupts at most the slot being written)
+pets/active.txt              which pet is on screen
+pets/graveyard/<id>.json     tombstones
+```
+
+- The card has to be **FAT32**, which is what the COLDCARD firmware can mount. Cards over
+  32 GB usually ship formatted as exFAT and *will not mount*; the device still detects
+  them, so the pet screen reports `card detected but it will not mount` and offers a
+  retry. **Advanced/Tools → File Management → Format SD Card** on the device makes it
+  FAT32 (and erases it).
+- If the pet screen ever shows a new egg when you expected your pet, open the pet menu
+  (**9**) → **Card Check**. It mounts the card and lists exactly what it finds: every
+  save slot with its counter and the pet's name, the active pointer, tombstones, free
+  space, and any file it could not parse. Press **1** there to force a save and see the
+  result.
+- A save that fails mid-life is never silent: a `Not Saving!` screen names the error,
+  the header blinks, and the pet keeps living in RAM. Fix or re-insert the card and the
+  next save just works ("Card is back. Saved.").
+- Up to 30 seconds of the pet's life can be lost to a power cut. Never the pet.
 
 ## Caring for it
 
@@ -141,11 +170,16 @@ Coinkite's simulator (`unix/`) needs Linux/macOS (WSL on Windows): follow
 
 ```bash
 cd unix && ./simulator.py --pet            # boots straight into the pet
-./simulator.py --pet --eject               # no card: RAM mode
+./simulator.py --pet --eject               # no card: the Card? screen, RAM mode
+./simulator.py                             # a pet already on the card wakes up by itself
 ```
 
-The simulated card is `unix/work/MicroSD/`; the pet's files appear under `pets/` there.
-`^Z` snapshots the screen, `^S`/`^E` records a GIF.
+The simulated card is `unix/work/MicroSD/`; the pet's files appear under `pets/` there
+and survive restarts, which is how the reboot path gets tested. `^Z` snapshots the
+screen, `^S`/`^E` records a GIF. What CI runs against this, headless, on every push
+(`pet/tools/sim_drive.py`): one full life from egg to tombstone; a second pet raised,
+the simulator killed, relaunched, and the pet found again with its age and meals; a boot
+with no card; and a card that stops mounting mid-life, then recovers.
 
 ## Flashing
 
