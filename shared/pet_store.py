@@ -57,6 +57,7 @@ class PetStore:
     def __init__(self, fs_factory):
         self.fs_factory = fs_factory
         self._slot = {}       # id -> (last counter, last slot letter) once seen
+        self.errors = []      # (filename, error) from the last load_all/report
 
     # ------------------------------------------------------------ internals
     def _prep(self, fs):
@@ -68,7 +69,8 @@ class PetStore:
         try:
             with fs.open(path, 'r') as f:
                 return _decode(f.read())
-        except (OSError, ValueError, StoreError):
+        except (OSError, ValueError, StoreError) as e:
+            self.errors.append((path, repr(e)))
             return None
 
     # ------------------------------------------------------------ pets
@@ -76,6 +78,7 @@ class PetStore:
         # -> dict id -> pet dict (best valid copy). Also learns slot counters.
         found = {}
         self._slot = {}       # the card is the truth; rebuild from scratch
+        self.errors = []
         with self.fs_factory() as fs:
             if not fs.exists(PETS_DIR):
                 return found
@@ -172,6 +175,42 @@ class PetStore:
         return out
 
 
+    # ------------------------------------------------------------ diagnostics
+    def report(self):
+        # Everything the Card Check screen wants to know. Never raises.
+        r = dict(mount=None, free_kb=None, files=[], pets=[], active=None, graves=0, err=None)
+        self.errors = []
+        try:
+            with self.fs_factory() as fs:
+                r['mount'] = fs.root
+                try:
+                    r['free_kb'] = fs.free_kb()
+                except Exception:
+                    pass
+                if fs.exists(PETS_DIR):
+                    names = sorted(fs.listdir(PETS_DIR))
+                    r['files'] = names[:12]     # raw, so odd names show up as-is
+                    for fn in names:
+                        if len(fn) != 10 or fn[8] != '.' or fn[9] not in 'ab':
+                            continue
+                        got = self._read_slot(fs, PETS_DIR + '/' + fn)
+                        if got:
+                            n, d = got
+                            r['pets'].append((fn, n, d.get('name', '?'),
+                                              d.get('stage', '?'), bool(d.get('alive', True))))
+                        else:
+                            r['pets'].append((fn, None, 'CORRUPT', '', False))
+                if fs.exists(ACTIVE_FILE):
+                    with fs.open(ACTIVE_FILE, 'r') as f:
+                        r['active'] = f.read().strip()
+                if fs.exists(GRAVE_DIR):
+                    r['graves'] = len([i for i in fs.listdir(GRAVE_DIR) if i.endswith('.json')])
+        except Exception as e:
+            r['err'] = repr(e)
+        r['bad'] = list(self.errors)
+        return r
+
+
 # ---------------------------------------------------------------- adapters
 class DirFS:
     # plain directory; used by tests and could be used for the sim's MicroSD dir
@@ -216,6 +255,10 @@ class DirFS:
             self.os.sync()
         except AttributeError:
             pass
+
+    def free_kb(self):
+        st = self.os.statvfs(self.root)
+        return (st[0] * st[4]) // 1024
 
 
 class CardFS:
@@ -270,5 +313,10 @@ class CardFS:
             os.sync()
         except AttributeError:
             pass
+
+    def free_kb(self):
+        import os
+        st = os.statvfs(self.root)
+        return (st[0] * st[4]) // 1024
 
 # EOF
