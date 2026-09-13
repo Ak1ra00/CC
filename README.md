@@ -12,12 +12,21 @@ whose remaining purpose is keeping a small creature alive.
 
 | | |
 |---|---|
-| ![adult](pet/screenshots/stage_4_adult.png) | ![hungry, with poop](pet/screenshots/situation_hungry_poop.png) |
-| ![feeding](pet/screenshots/action_feed.png) | ![sick](pet/screenshots/situation_sick.png) |
-| ![PIN drill](pet/screenshots/game_pin_show.png) | ![R.I.P.](pet/screenshots/death.png) |
+| ![egg](pet/screenshots/sim/01_egg.png) | ![hatched](pet/screenshots/sim/03_feed.png) |
+| ![poop](pet/screenshots/sim/05_hungry_poop.png) | ![clean](pet/screenshots/sim/06_clean.png) |
+| ![PIN drill](pet/screenshots/sim/12_pin_drill.png) | ![sick](pet/screenshots/sim/14_sick.png) |
+| ![R.I.P.](pet/screenshots/sim/15_rip.png) | ![epitaph](pet/screenshots/sim/16_epitaph.png) |
 
-*(Screens rendered by the firmware's own `display.py`, fonts and sprite code through
-`pet/tools/render.py`; the OLED shows the same pixels.)*
+*Real frames from Coinkite's desktop simulator running this firmware's MicroPython code,
+captured headlessly in CI by [`pet/tools/sim_drive.py`](pet/tools/sim_drive.py) (all 18
+are in [`pet/screenshots/sim/`](pet/screenshots/sim/)). More creatures, rendered through
+the same `display.py` and fonts by `pet/tools/render.py`:*
+
+| | | |
+|---|---|---|
+| ![](pet/screenshots/stage_1_baby.png) | ![](pet/screenshots/stage_2_child.png) | ![](pet/screenshots/stage_3_teen.png) |
+| ![](pet/screenshots/adult_body0_eyes0.png) | ![](pet/screenshots/adult_body1_eyes1.png) | ![](pet/screenshots/adult_body2_eyes2.png) |
+| ![](pet/screenshots/stage_5_elder.png) | ![](pet/screenshots/situation_tired.png) | ![](pet/screenshots/situation_pat.png) |
 
 ## What it does
 
@@ -82,12 +91,22 @@ It dies of: starvation, untreated sickness, a broken heart, too many snacks, or 
 All decay rates, thresholds, stage timings and lifespan are in **one labelled block** at
 the top of [`shared/pet_model.py`](shared/pet_model.py) (`TUNING KNOBS`).
 
+## Get the firmware
+
+The current build is committed in [`releases/`](releases/) next to its SHA-256
+(`tamagotchi-sha256.txt`), and published on the
+[Releases page](https://github.com/Ak1ra00/CC/releases) together with the simulator
+screenshots from the same CI run.
+
 ## Building
 
 The `.dfu` is built by GitHub Actions on every push
 ([`.github/workflows/pet-firmware.yml`](.github/workflows/pet-firmware.yml)) inside
 Coinkite's own build container, and attached as a workflow artifact
-(`tamagotchi-mk4-dfu`). Tags named `pet-v*` also publish a GitHub Release with the file.
+(`tamagotchi-mk4-dfu`). The same workflow builds the desktop simulator, runs the pet in
+it headlessly on real MicroPython, and fails if anything deviates from the scripted
+life story or the simulator prints a traceback. Tags named `pet-v*` publish a GitHub
+Release with the `.dfu`, its SHA-256 and the simulator frames.
 
 Locally (Linux/macOS/WSL with Docker):
 
@@ -134,8 +153,9 @@ Prerequisites: a Mk4 (or Mk5) with a **main PIN set** — the firmware upgrade p
 only available after login. Nothing here touches the bootloader; it cannot be replaced
 and always runs first.
 
-1. Download `*-mk-tamagotchi.dfu` from the Actions artifact or a Release. Check its
-   SHA-256 against `built-sha256.txt` from the same build.
+1. Take `*-mk-tamagotchi.dfu` from [`releases/`](releases/) or the
+   [Releases page](https://github.com/Ak1ra00/CC/releases). Check its SHA-256 against
+   `tamagotchi-sha256.txt` / `built-sha256.txt` from the same build.
 2. Copy it to a microSD card. On the device: **Advanced/Tools → Upgrade Firmware →
    From MicroSD**, pick the file, confirm. (Or over USB: `pip install ckcc-protocol` then
    `ckcc upgrade file.dfu`.)

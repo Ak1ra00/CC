@@ -1,1 +1,3 @@
 *.dfu
+# unofficial fork: the Tamagotchi build IS the deliverable, keep it in the tree
+!*-mk-tamagotchi.dfu
