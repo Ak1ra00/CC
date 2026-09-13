@@ -104,8 +104,10 @@ def main():
 
     # warm it: exactly enough presses to hatch (see pet_model.EGG_WARM)
     need = int(sim.ev("-(-__import__('pet_model').STAGE_AT['baby'] // __import__('pet_model').EGG_WARM)"))
-    for i in range(0, need, 10):
-        sim.key(*(['5'] * min(10, need - i)), gap=0.03)
+    for i in range(0, need, 5):
+        if sim.pet('is_egg()') != 'True':
+            break                       # real ticks warmed it too; don't over-press
+        sim.key(*(['5'] * min(5, need - i)), gap=0.03)
         time.sleep(0.4)
     sim.wait("__import__('pet_ux').session.pet.stage", want="'baby'", msg='(hatch)')
     time.sleep(0.5)
