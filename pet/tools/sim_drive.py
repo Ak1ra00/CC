@@ -3,11 +3,13 @@
 # USB socket, and save real OLED frames as PNG. This is the pet running on actual
 # MicroPython, frozen-module code paths and all.
 #
-#   cd unix && ./simulator.py --headless --pet > sim.log 2>&1 &
-#   python pet/tools/sim_drive.py pet/screenshots/sim [/tmp/ckcc-simulator.sock]
+#   python pet/tools/sim_drive.py pet/screenshots/sim     (from the repo root)
 #
+# Launches unix/simulator.py itself, several times: the pet has to survive a
+# reboot, and the no-card / unmountable-card screens have to be the ones a
+# person sees, not the ones the CPython harness imagines. Logs go to sim-N.log.
 # Exits non-zero if anything doesn't happen the way the tests say it should.
-import os, sys, time, json
+import os, sys, time, json, signal, subprocess
 
 from ckcc.client import ColdcardDevice
 from ckcc.protocol import CCProtocolPacker
@@ -30,6 +32,34 @@ def connect(timeout=120):
             last = e
             time.sleep(1)
     raise SystemExit('simulator never answered: %r' % last)
+
+
+LAUNCHES = 0
+
+def launch(*args):
+    # start unix/simulator.py headless (it spawns the MicroPython child); the
+    # whole process group gets killed by stop(), so the socket frees up.
+    global LAUNCHES
+    LAUNCHES += 1
+    try:
+        os.remove(SOCK)
+    except OSError:
+        pass
+    log = open('sim-%d.log' % LAUNCHES, 'w')
+    print('launch #%d: simulator.py --headless %s' % (LAUNCHES, ' '.join(args)))
+    proc = subprocess.Popen([sys.executable, './simulator.py', '--headless'] + list(args),
+                            cwd='unix', stdout=log, stderr=subprocess.STDOUT,
+                            start_new_session=True)
+    return proc
+
+def stop(proc):
+    # SIGKILL the group: simulator.py ignores SIGINT and would leave its child
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except OSError:
+        pass
+    proc.wait()
+    time.sleep(0.5)
 
 
 class Sim:
@@ -86,6 +116,7 @@ class Sim:
 
 
 def main():
+    proc = launch('--pet')
     sim = Sim(connect())
     print('connected; version', sim.ev('version.get_mpy_version()'))
 
@@ -174,7 +205,116 @@ def main():
     assert pid + '.a' not in files and pid + '.b' not in files, files
     sim.shot('after_death_menu')
 
-    print('\nALL GOOD: %d frames in %s' % (sim.n, OUT))
+    # ------------------------------------------------------------ a second pet,
+    # raised a little, then the power goes: it must come back on reboot.
+    # (pet menu is up; with no pet, "New Egg" is its first item)
+    sim.key('y')
+    sim.wait('sim_display.story', msg='(New Egg story #2)')
+    sim.key('y')
+    sim.wait("__import__('pet_ux').session.pet is not None", want='True')
+    sim.wait("__import__('pet_ux').session.active", want='True')
+    for i in range(need):
+        if sim.pet('is_egg()') != 'True':
+            break
+        sim.key('5', gap=0.02)
+        if i % 10 == 9:
+            time.sleep(0.3)
+    sim.wait("__import__('pet_ux').session.pet.stage", want="'baby'", msg='(hatch #2)')
+    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0")
+    sim.key('1'); time.sleep(0.4)
+    assert sim.pet("stats['meals']") == '1'
+    sim.key('x'); time.sleep(0.6)               # X leaves the pet screen: saves
+    pid2 = sim.pet('id').strip("'")
+    age2 = int(sim.pet('age'))
+    assert sim.ev("__import__('pet_ux').session.ram_only") == 'False'
+    files = sim.ev("__import__('os').listdir(__import__('ckcc').get_sim_root_dirs()[1] + '/pets')")
+    print('card files before power cut:', files)
+    assert pid2 + '.a' in files or pid2 + '.b' in files, files
+    stop(proc)
+    print('--- power cut ---')
+
+    # ------------------------------------------------------------ reboot, card in.
+    # No --pet: nobody presses anything. main.py's pet_autostart has to find it.
+    proc = launch()
+    sim = Sim(connect())
+    sim.wait("__import__('pet_ux').session.pet is not None", want='True', timeout=60,
+             msg='(autostart after reboot)')
+    assert sim.pet('id').strip("'") == pid2, (sim.pet('id'), pid2)
+    assert int(sim.pet('age')) >= age2
+    assert sim.pet("stats['meals']") == '1'
+    assert sim.pet("stats['naps']") == '1'
+    assert sim.ev("__import__('pet_ux').session.ram_only") == 'False'
+    sim.wait("__import__('pet_ux').session.active", want='True', msg='(pet screen after reboot)')
+    time.sleep(2.0)
+    sim.shot('woke_up')
+    # it keeps aging after the reboot
+    a1 = int(sim.pet('age'))
+    sim.wait("__import__('pet_ux').session.pet.age >= %d" % (a1 + 2), want='True', timeout=15,
+             msg='(ticker after reboot)')
+    # the Card Check screen, on MicroPython, with a real listing
+    txt = sim.ev("__import__('pet_ux').session.card_check_text()")
+    print('card check:', txt)
+    assert 'Card OK' in txt and pid2 in txt and 'Active: ' + pid2 in txt, txt
+    stop(proc)
+    print('--- power cut ---')
+
+    # ------------------------------------------------------------ reboot, no card.
+    # Must not touch the card's pet, must not hand out a silent egg.
+    proc = launch('--eject', '--pet')
+    sim = Sim(connect())
+    sim.wait("'Card?' in sim_display.full_contents", want='True', timeout=60, msg='(card? screen)')
+    assert sim.ev("__import__('pet_ux').session.pet") == 'None'
+    sim.shot('no_card')
+    sim.key('y')                                # play in RAM anyway?
+    sim.wait('sim_display.story', msg='(RAM only? confirm)')
+    assert 'RAM only' in sim.ev('sim_display.story'), sim.ev('sim_display.story')
+    sim.shot('ram_confirm')
+    sim.key('y')
+    time.sleep(0.5)
+    sim.wait("__import__('pet_ux').session.pet is not None", want='True', timeout=30)
+    sim.wait('sim_display.story', msg='(New Egg story, RAM)')
+    story = sim.ev('sim_display.story')
+    assert 'NOT SAVED' in story, story
+    sim.key('y')
+    sim.wait("__import__('pet_ux').session.active", want='True')
+    assert sim.ev("__import__('pet_ux').session.ram_only") == 'True'
+    sim.wait("'NOT SAVING' in sim_display.full_contents", want='True', timeout=10,
+             msg='(RAM banner)')
+    sim.shot('ram_banner')
+    stop(proc)
+    print('--- power cut ---')
+
+    # ------------------------------------------------------------ reboot, card in,
+    # then the card goes bad mid-life (mount fails, as with exFAT): loud, and it
+    # recovers by itself when the card is usable again.
+    proc = launch()
+    sim = Sim(connect())
+    sim.wait("__import__('pet_ux').session.pet is not None", want='True', timeout=60,
+             msg='(autostart #2)')
+    assert sim.pet('id').strip("'") == pid2
+    assert sim.pet("stats['naps']") == '2'
+    sim.wait("__import__('pet_ux').session.active", want='True')
+    sim.exec("import files; files._good_try = files._try_microsd; files._try_microsd = lambda: False")
+    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0")
+    sim.key('1')                                # feed: the save fails
+    sim.wait('sim_display.story', timeout=15, msg='(Not Saving story)')
+    story = sim.ev('sim_display.story')
+    assert 'Not Saving' in story and 'will not mount' in story, story
+    assert sim.ev("__import__('pet_ux').session.ram_only") == 'True'
+    sim.shot('save_failed')
+    sim.key('y')
+    time.sleep(0.5)
+    txt = sim.ev("__import__('pet_ux').session.card_check_text()")
+    assert 'unusable' in txt and 'FAT32' in txt, txt
+    sim.exec("import files; files._try_microsd = files._good_try")
+    sim.exec("p=__import__('pet_ux').session.pet; p.hunger=40.0")
+    sim.key('1')                                # feed: the save works again
+    sim.wait("__import__('pet_ux').session.ram_only", want='False', timeout=15, msg='(recovered)')
+    time.sleep(0.6)
+    sim.shot('card_back')
+    stop(proc)
+
+    print('\nALL GOOD: %d frames in %s, %d simulator launches' % (sim.n, OUT, LAUNCHES))
 
 
 if __name__ == '__main__':

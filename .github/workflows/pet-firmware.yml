@@ -87,18 +87,19 @@ jobs:
         run: |
           set -o pipefail
           rm -rf unix/work/MicroSD/pets
-          (cd unix && ./simulator.py --headless --pet > ../sim.log 2>&1 &)
+          # the driver launches unix/simulator.py itself: once for a full life,
+          # then again for reboot / no card / unmountable card. Logs: sim-N.log
           python pet/tools/sim_drive.py pet/screenshots/sim 2>&1 | tee drive.log
           echo "--- simulator output"
-          cat sim.log
-          ! grep -n -e Traceback -e Yikes -e Panic sim.log
+          for f in sim-*.log; do echo "=== $f"; cat "$f"; done
+          ! grep -n -e Traceback -e Yikes -e Panic sim-*.log
 
       - name: log tails as annotations (readable without signing in)
         if: always()
         shell: bash
         run: |
           # annotations show on the public run page; logs and summaries need a login
-          for f in build.log drive.log sim.log; do
+          for f in build.log drive.log sim-*.log; do
             [ -f "$f" ] || continue
             python3 - "$f" <<'PY'
           import sys
@@ -117,7 +118,7 @@ jobs:
           name: sim-screens
           path: |
             pet/screenshots/sim/*.png
-            sim.log
+            sim-*.log
             build.log
             drive.log
 
