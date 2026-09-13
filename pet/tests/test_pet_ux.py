@@ -383,3 +383,140 @@ def test_card_pulled_mid_life_switches_to_ram_and_back(card):
         h.press('1')
         assert await h.run_until(lambda: pet.stats['meals'] == 2 and not s.ram_only, max_ms=5000)
     h.run(go())
+
+
+# ---------------------------------------------------------------- unusable card
+# The bug report that prompted these: a card that is detected but cannot be
+# mounted (exFAT, say) must never quietly turn into "a new egg".
+def test_unreadable_card_shows_the_problem_and_x_backs_out(card):
+    h = Harness(card_dir=card)
+    h.card_bad = OSError(19, 'ENODEV')
+
+    async def go():
+        h.story_answers.append('x')             # Card Problem story: X = back
+        await start(h)
+        s = h.session
+        assert s.pet is None and not s.ram_only
+        assert not isinstance(h.the_ux.top_of_stack(), h.pet_ux.PetScreen)
+        titles = [t for t, m in h.stories]
+        assert 'Card Problem' in titles and 'New Egg' not in titles
+        assert 'FAT32' in h.stories[-1][1]
+    h.run(go())
+
+
+def test_unreadable_card_retry_works_once_fixed(card):
+    h = Harness(card_dir=card)
+    h.card_bad = OSError(19, 'ENODEV')
+
+    async def go():
+        s = h.session
+        # Card Problem story is up; the user reformats the card, then presses (1)
+        def fixed_now():
+            h.card_bad = None
+            return '1'
+        h.story_answers.append(fixed_now)
+        await start(h)
+        assert [t for t, m in h.stories][0] == 'Card Problem'
+        assert s.pet and s.pet.is_egg() and not s.ram_only
+        assert s.pet.id + '.a' in pets_on(card)
+    h.run(go())
+
+
+def test_unreadable_card_ram_only_by_explicit_choice(card):
+    h = Harness(card_dir=card)
+    h.card_bad = OSError(19, 'ENODEV')
+
+    async def go():
+        s = h.session
+        h.story_answers.append('2')             # play in RAM
+        h.confirm_answers.append(True)          # "RAM only?" yes
+        await start(h)
+        assert s.pet and s.ram_only
+        assert pets_on(card) == []
+        assert 'RAM only?' in [t for t, m in h.stories]
+        assert 'NOT SAVED' in h.stories[-1][1]  # the New Egg story says so
+    h.run(go())
+
+
+def test_save_failure_mid_life_is_loud_then_recovers(card):
+    h = Harness(card_dir=card)
+
+    async def go():
+        s = h.session
+        pet = await hatched(h)
+        before = len(pets_on(card))
+        h.card_bad = OSError(5, 'EIO')
+        n0 = len(h.stories)
+        # the next autosave (ticker) fails: a story is queued, banner goes on
+        import pet_model as M
+        assert await h.run_until(lambda: s.ram_only, max_ms=(M.AUTOSAVE_EVERY + 5) * 1000)
+        assert await h.run_until(lambda: len(h.stories) > n0, max_ms=5000)
+        assert h.stories[-1][0] == 'Not Saving!' and 'will not mount' in h.stories[-1][1]
+        assert pet.alive and isinstance(h.the_ux.top_of_stack(), h.pet_ux.PetScreen)
+        # only one story per failure episode
+        n1 = len(h.stories)
+        pet.hunger = 30.0
+        h.press('1')
+        assert await h.run_until(lambda: pet.stats['meals'] == 1, max_ms=5000)
+        assert len(h.stories) == n1
+        # card fixed: next save just works, and the pet says so
+        h.card_bad = None
+        pet.hunger = 30.0
+        h.press('1')
+        assert await h.run_until(lambda: pet.stats['meals'] == 2 and not s.ram_only, max_ms=5000)
+        assert len(pets_on(card)) >= before
+    h.run(go())
+
+
+def test_card_check_reports_whats_on_the_card(card):
+    h = Harness(card_dir=card)
+
+    async def go():
+        s = h.session
+        pet = await hatched(h)
+        txt = s.card_check_text()
+        assert 'Card OK' in txt and pet.id + '.a' in txt and pet.name in txt
+        assert 'Active: ' + pet.id in txt and 'Saves: 2' in txt     # egg + hatch
+        # corrupt one slot on purpose: it is named, not hidden
+        s.save()
+        bad = os.path.join(card, 'pets', pet.id + '.b')
+        open(bad, 'w').write('garbage')
+        txt = s.card_check_text()
+        assert 'CORRUPT' in txt and ('BAD %s.b' % pet.id) in txt
+        # no card
+        h.card_inserted = False
+        assert 'No card detected' in s.card_check_text()
+        # unusable card
+        h.card_inserted = True
+        h.card_bad = OSError(19, 'ENODEV')
+        txt = s.card_check_text()
+        assert 'unusable' in txt and 'will not mount' in txt and 'FAT32' in txt
+    h.run(go())
+
+
+def test_reboot_finishes_a_burial_but_keeps_the_live_sibling(card):
+    # power died between tombstone and cleanup, and another pet lives on the card
+    h = Harness(card_dir=card)
+
+    async def go():
+        s = h.session
+        first = await hatched(h)
+        h.menu_script.extend(['New Egg'])
+        h.press('9')
+        assert await h.run_until(lambda: s.pet is not None and s.pet.id != first.id, max_ms=30000)
+        second = s.pet
+        # kill the second one on disk only: alive=False, no tombstone yet
+        d = second.to_dict(); d['alive'] = False; d['cause'] = 'test'
+        s.store.save(d)
+        return first.id, second.id
+    fid, sid = h.run(go())
+
+    h2 = Harness(card_dir=card)
+
+    async def go2():
+        s = h2.session
+        assert s.load_from_card() == 'ok'
+        assert s.pet.id == fid                      # the survivor came up
+        assert graves_on(card) == [sid + '.json']   # the dead one got its stone
+        assert not any(f.startswith(sid) for f in pets_on(card))
+    h2.run(go2())

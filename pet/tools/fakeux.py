@@ -86,6 +86,7 @@ class Harness:
         self.menu_script = []     # labels to pick when a MenuSystem interacts, or 'x'
         self.card_dir = card_dir
         self.card_inserted = card_inserted
+        self.card_bad = None      # set to an OSError to make the card mount-fail
         self.rand = random.Random(seed)
         self.the_ux = UserInteraction()
         self.last_event_time = 0
@@ -172,7 +173,8 @@ class Harness:
         async def ux_show_story(msg, title=None, escape=None, **kw):
             H.stories.append((title, msg))
             await asyncio.sleep(0)
-            return H.story_answers.pop(0) if H.story_answers else 'y'
+            a = H.story_answers.pop(0) if H.story_answers else 'y'
+            return a() if callable(a) else a       # callables: act, then answer
         ux.ux_show_story = ux_show_story
         async def ux_confirm(msg, title=None, **kw):
             H.stories.append((title, msg))
@@ -252,6 +254,9 @@ class Harness:
                 self.mountpt = None
             def __enter__(self):
                 if not H.card_inserted:
+                    raise CardMissingError
+                if H.card_bad:
+                    # what files.CardSlot does when os.mount() fails (exFAT etc)
                     raise CardMissingError
                 self.mountpt = H.card_dir
                 return self
