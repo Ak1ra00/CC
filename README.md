@@ -16,10 +16,13 @@ whose remaining purpose is keeping a small creature alive.
 | ![poop](pet/screenshots/sim/05_hungry_poop.png) | ![clean](pet/screenshots/sim/06_clean.png) |
 | ![PIN drill](pet/screenshots/sim/12_pin_drill.png) | ![sick](pet/screenshots/sim/14_sick.png) |
 | ![R.I.P.](pet/screenshots/sim/15_rip.png) | ![epitaph](pet/screenshots/sim/16_epitaph.png) |
+| ![woke up after a power cut](pet/screenshots/sim/18_woke_up.png) | ![no card](pet/screenshots/sim/19_no_card.png) |
+| ![RAM only](pet/screenshots/sim/21_ram_banner.png) | ![card back](pet/screenshots/sim/23_card_back.png) |
 
 *Real frames from Coinkite's desktop simulator running this firmware's MicroPython code,
-captured headlessly in CI by [`pet/tools/sim_drive.py`](pet/tools/sim_drive.py) (all 18
-are in [`pet/screenshots/sim/`](pet/screenshots/sim/)). More creatures, rendered through
+captured headlessly in CI by [`pet/tools/sim_drive.py`](pet/tools/sim_drive.py) (all 24
+are in [`pet/screenshots/sim/`](pet/screenshots/sim/)) — including the pet waking up
+after the simulator was killed and relaunched. More creatures, rendered through
 the same `display.py` and fonts by `pet/tools/render.py`:*
 
 | | | |
