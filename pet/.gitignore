@@ -1,0 +1,3 @@
+screenshots/_*.png
+__pycache__/
+.pytest_cache/
