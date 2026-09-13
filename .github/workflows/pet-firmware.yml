@@ -63,26 +63,41 @@ jobs:
           python -m pip install -q ./external/ckcc-protocol
 
       - name: build the simulator (unix port, coldcard-mpy variant)
+        shell: bash
         run: |
-          cd unix
-          ln -sf ../external/micropython/ports/unix l-port
-          ln -sf ../external/micropython l-mpy
-          ln -sf ../external/micropython/ports/unix/coldcard-mpy coldcard-mpy
-          make ngu-setup
-          make tools
-          make
-          ls -la coldcard-mpy l-port/coldcard-mpy
+          set -o pipefail
+          (
+            set -ex
+            cd unix
+            ln -sf ../external/micropython/ports/unix l-port
+            ln -sf ../external/micropython l-mpy
+            ln -sf ../external/micropython/ports/unix/coldcard-mpy coldcard-mpy
+            make ngu-setup
+            make tools
+            make
+            ls -la coldcard-mpy l-port/coldcard-mpy
+          ) 2>&1 | tee build.log
 
       - name: run it, headless, and drive the pet over the socket
+        shell: bash
         run: |
+          set -o pipefail
           rm -rf unix/work/MicroSD/pets
-          cd unix
-          ./simulator.py --headless --pet > ../sim.log 2>&1 &
-          cd ..
-          python pet/tools/sim_drive.py pet/screenshots/sim
+          (cd unix && ./simulator.py --headless --pet > ../sim.log 2>&1 &)
+          python pet/tools/sim_drive.py pet/screenshots/sim 2>&1 | tee drive.log
           echo "--- simulator output"
           cat sim.log
-          ! grep -n "Traceback\|Yikes\|Panic" sim.log
+          ! grep -n -e Traceback -e Yikes -e Panic sim.log
+
+      - name: logs into the job summary (readable without signing in)
+        if: always()
+        shell: bash
+        run: |
+          for f in build.log drive.log sim.log; do
+            if [ -f "$f" ]; then
+              { echo "### $f (tail)"; echo '```'; tail -n 150 "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -91,6 +106,8 @@ jobs:
           path: |
             pet/screenshots/sim/*.png
             sim.log
+            build.log
+            drive.log
 
   firmware:
     name: Mk4 firmware (.dfu, dev key 0)
@@ -110,10 +127,18 @@ jobs:
             | docker build -t coldcard-build -
 
       - name: build + sign with key zero
+        shell: bash
         run: |
+          set -o pipefail
           docker run --rm -v "$PWD:/work/src" -w /work/src \
             -e HOME=/tmp -u "$(id -u):$(id -g)" coldcard-build \
-            sh stm32/pet-build.sh
+            sh stm32/pet-build.sh 2>&1 | tee fw-build.log
+
+      - name: build log tail into the job summary
+        if: always()
+        shell: bash
+        run: |
+          { echo "### firmware build (tail)"; echo '```'; tail -n 120 fw-build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: header sanity (dev key 0, no high-water flag)
         run: |
