@@ -62,11 +62,16 @@ def stop(proc):
     time.sleep(0.5)
 
 
+SHOTS = 0       # frame numbering runs across simulator relaunches
+
 class Sim:
     def __init__(self, dev):
         self.dev = dev
-        self.n = 0
         os.makedirs(OUT, exist_ok=True)
+
+    @property
+    def n(self):
+        return SHOTS
 
     def exec(self, code, timeout=10000):
         return self.dev.send_recv(b'EXEC' + code.encode(), timeout=timeout, encrypt=False)
@@ -96,9 +101,10 @@ class Sim:
                     if v & (1 << bit):
                         px[x, page * 8 + bit] = FG
         img = img.resize((128 * scale, 64 * scale), Image.NEAREST)
-        fn = os.path.join(OUT, '%02d_%s.png' % (self.n, name))
+        global SHOTS
+        fn = os.path.join(OUT, '%02d_%s.png' % (SHOTS, name))
         img.save(fn)
-        self.n += 1
+        SHOTS += 1
         print('shot', fn, '| screen text:', self.ev('sim_display.full_contents')[:70])
         return img
 
