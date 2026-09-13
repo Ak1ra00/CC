@@ -1,0 +1,42 @@
+NOTICE
+======
+
+This is an UNOFFICIAL fork of the COLDCARD firmware.
+
+It is NOT made by, endorsed by, supported by, or in any way affiliated
+with Coinkite Inc. Do not contact Coinkite about it. Do not use it to
+hold, sign for, or otherwise go anywhere near bitcoin.
+
+What this fork does
+-------------------
+
+It turns a retired COLDCARD Mk4 into a virtual pet ("Tamagotchi"). The
+creature lives on the microSD card, ages only while the device is
+powered, and can die. The pet code is in `shared/pet_*.py` and is
+described in README.md.
+
+Firmware built from this tree is signed with the PUBLIC developer key
+(key zero, `stm32/keys/00.pem`). The COLDCARD bootloader detects this
+and shows a large warning plus a forced delay on every boot. That is
+expected. It also means anyone can build this; nothing here is genuine
+Coinkite firmware.
+
+Licensing
+---------
+
+* All original COLDCARD firmware code remains under Coinkite's licence:
+  MIT with the Commons Clause (no selling). See `COPYING-CC`, which
+  `LICENSE` links to. That licence continues to apply to this fork as a
+  whole, because it is a derivative work.
+
+* The new pet-specific files added by this fork (`shared/pet_*.py`,
+  `testing/pet/`, `graphics/pet/`, `docs/pet*`) are additionally offered
+  by their author under the plain MIT licence in `LICENSE-PET`. Where the
+  two overlap, the more restrictive Coinkite terms win for the combined
+  firmware image.
+
+Trademarks
+----------
+
+COLDCARD and COINKITE are trademarks of Coinkite Inc. They are used here
+only to identify the hardware this fork runs on.
