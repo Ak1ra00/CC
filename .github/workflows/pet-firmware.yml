@@ -89,14 +89,22 @@ jobs:
           cat sim.log
           ! grep -n -e Traceback -e Yikes -e Panic sim.log
 
-      - name: logs into the job summary (readable without signing in)
+      - name: log tails as annotations (readable without signing in)
         if: always()
         shell: bash
         run: |
+          # annotations show on the public run page; logs and summaries need a login
           for f in build.log drive.log sim.log; do
-            if [ -f "$f" ]; then
-              { echo "### $f (tail)"; echo '```'; tail -n 150 "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            fi
+            [ -f "$f" ] || continue
+            python3 - "$f" <<'PY'
+          import sys
+          f = sys.argv[1]
+          lines = open(f, errors='replace').read().splitlines()[-90:]
+          for i in range(0, len(lines), 30):
+              chunk = '\n'.join(lines[i:i+30])
+              chunk = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::warning title=%s lines %d-%d::%s' % (f, i, i+30, chunk[:3800]))
+          PY
           done
 
       - uses: actions/upload-artifact@v4
@@ -134,11 +142,19 @@ jobs:
             -e HOME=/tmp -u "$(id -u):$(id -g)" coldcard-build \
             sh stm32/pet-build.sh 2>&1 | tee fw-build.log
 
-      - name: build log tail into the job summary
-        if: always()
+      - name: build log tail as annotations (readable without signing in)
+        if: failure()
         shell: bash
         run: |
-          { echo "### firmware build (tail)"; echo '```'; tail -n 120 fw-build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          python3 - fw-build.log <<'PY'
+          import sys
+          f = sys.argv[1]
+          lines = open(f, errors='replace').read().splitlines()[-90:]
+          for i in range(0, len(lines), 30):
+              chunk = '\n'.join(lines[i:i+30])
+              chunk = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::warning title=%s lines %d-%d::%s' % (f, i, i+30, chunk[:3800]))
+          PY
 
       - name: header sanity (dev key 0, no high-water flag)
         run: |
