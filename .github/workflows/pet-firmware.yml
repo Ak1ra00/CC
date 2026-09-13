@@ -1,9 +1,12 @@
 # Unofficial COLDCARD Tamagotchi fork -- CI
 #
-# tests:     the pet model + UX under CPython (no toolchain needed)
-# firmware:  Mk4 .dfu built in Coinkite's own build container, signed with the
-#            public dev key zero. Uploaded as a workflow artifact on every push;
-#            attached to a GitHub Release when a tag like pet-v1.0 is pushed.
+# tests:      the pet model + UX under CPython with a fake clock (no toolchain)
+# simulator:  the pet running on REAL MicroPython in Coinkite's headless desktop
+#             simulator, driven over its socket; real OLED frames are saved
+# firmware:   Mk4 .dfu built in Coinkite's own build container, signed with the
+#             public dev key zero
+# release:    on tags pet-v*, a GitHub Release with the .dfu, its sha256, and the
+#             simulator screenshots
 name: tamagotchi
 
 on:
@@ -34,6 +37,60 @@ jobs:
         with:
           name: pet-screens
           path: pet/screenshots/*.png
+
+  simulator:
+    name: pet on real MicroPython (headless simulator)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: submodules
+        run: |
+          git submodule update --init external/micropython external/libngu external/mpy-qr external/ckcc-protocol
+          git -C external/micropython submodule update --init lib/axtls lib/berkeley-db-1.xx lib/libffi
+          git -C external/libngu/libs submodule update --init bech32 cifra secp256k1
+
+      - name: apt
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential libffi-dev pkg-config autoconf automake libtool libsdl2-2.0-0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install -q -r unix/requirements.txt
+          python -m pip install -q ./external/ckcc-protocol
+
+      - name: build the simulator (unix port, coldcard-mpy variant)
+        run: |
+          cd unix
+          ln -sf ../external/micropython/ports/unix l-port
+          ln -sf ../external/micropython l-mpy
+          ln -sf ../external/micropython/ports/unix/coldcard-mpy coldcard-mpy
+          make ngu-setup
+          make tools
+          make
+          ls -la coldcard-mpy l-port/coldcard-mpy
+
+      - name: run it, headless, and drive the pet over the socket
+        run: |
+          rm -rf unix/work/MicroSD/pets
+          cd unix
+          ./simulator.py --headless --pet > ../sim.log 2>&1 &
+          cd ..
+          python pet/tools/sim_drive.py pet/screenshots/sim
+          echo "--- simulator output"
+          cat sim.log
+          ! grep -n "Traceback\|Yikes\|Panic" sim.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-screens
+          path: |
+            pet/screenshots/sim/*.png
+            sim.log
 
   firmware:
     name: Mk4 firmware (.dfu, dev key 0)
@@ -66,8 +123,9 @@ jobs:
           from sigheader import FW_HEADER_OFFSET, FW_HEADER_SIZE, FWH_PY_FORMAT, FWH_PY_VALUES, FW_HEADER_MAGIC
           raw = open('stm32/firmware-signed.bin', 'rb').read()[FW_HEADER_OFFSET:FW_HEADER_OFFSET + FW_HEADER_SIZE]
           h = dict(zip(FWH_PY_VALUES.split(), struct.unpack_from(FWH_PY_FORMAT, raw)))
-          print('version %r pubkey_num %d install_flags %d timestamp %s'
-                % (h['version_string'].rstrip(bytes(1)), h['pubkey_num'], h['install_flags'], h['timestamp'].hex()))
+          print('version %r pubkey_num %d install_flags %d timestamp %s firmware_length %d'
+                % (h['version_string'].rstrip(bytes(1)), h['pubkey_num'], h['install_flags'],
+                   h['timestamp'].hex(), h['firmware_length']))
           assert h['magic_value'] == FW_HEADER_MAGIC
           assert h['pubkey_num'] == 0, 'must be signed with dev key zero'
           assert h['install_flags'] == 0, 'must not carry the high-water flag'
@@ -84,15 +142,34 @@ jobs:
             stm32/built-sha256.txt
           if-no-files-found: error
 
-      - name: GitHub Release (on pet-v* tags)
-        if: startsWith(github.ref, 'refs/tags/pet-v')
-        uses: softprops/action-gh-release@v2
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/pet-v')
+    needs: [tests, simulator, firmware]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tamagotchi-mk4-dfu
+          path: dfu
+      - uses: actions/download-artifact@v4
+        with:
+          name: sim-screens
+          path: sim
+      - run: |
+          (cd sim && zip -q ../simulator-screenshots.zip *.png sim.log)
+          ls -la dfu sim
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
-            stm32/*-mk-tamagotchi.dfu
-            stm32/built-sha256.txt
+            dfu/*-mk-tamagotchi.dfu
+            dfu/built-sha256.txt
+            simulator-screenshots.zip
           body: |
             Unofficial COLDCARD Mk4 firmware that turns the device into a virtual pet.
             Not made, endorsed or supported by Coinkite. Signed with the PUBLIC dev key
             zero: the bootloader shows a warning and a delay on every boot. That is
             expected. See README.md for flashing and for the way back to stock firmware.
+
+            The simulator screenshots were taken from this exact code running on
+            MicroPython in Coinkite's desktop simulator, headless, in CI.
