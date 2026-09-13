@@ -72,6 +72,9 @@ jobs:
             ln -sf ../external/micropython/ports/unix l-port
             ln -sf ../external/micropython l-mpy
             ln -sf ../external/micropython/ports/unix/coldcard-mpy coldcard-mpy
+            # this MicroPython predates GCC 12+'s new warnings and builds with -Werror;
+            # the warnings are in upstream core (py/stackctrl.c), not our code
+            export CFLAGS_EXTRA=-Wno-error
             make -C ../external/micropython/mpy-cross -j4
             make ngu-setup
             make tools
