@@ -30,7 +30,7 @@ Licensing
   whole, because it is a derivative work.
 
 * The new pet-specific files added by this fork (`shared/pet_*.py`,
-  `testing/pet/`, `graphics/pet/`, `docs/pet*`) are additionally offered
+  `pet/`, `.github/workflows/pet-*.yml`) are additionally offered
   by their author under the plain MIT licence in `LICENSE-PET`. Where the
   two overlap, the more restrictive Coinkite terms win for the combined
   firmware image.
